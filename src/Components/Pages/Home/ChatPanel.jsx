@@ -17,6 +17,21 @@ const ChatPanel = ({ chat, onBack, className }) => {
 	const [errorMessage, setErrorMessage] = useState("");
 	const activeChat = useChatStore((state) => state.activeChat);
 	const addMessage = useChatStore((state) => state.addMessage);
+	const emojiPickerRef = useRef(null);
+	const emojiButtonRef = useRef(null);
+
+	useEffect(() => {
+		const handleClickOutside = (event) => {
+			if (showEmojiPicker &&
+				!emojiPickerRef.current?.contains(event.target) &&
+				!emojiButtonRef.current?.contains(event.target)) {
+				setShowEmojiPicker(false);
+			}
+		};
+
+		document.addEventListener('mousedown', handleClickOutside);
+		return () => document.removeEventListener('mousedown', handleClickOutside);
+	}, [showEmojiPicker]);
 
 	// Message synchronization
 	useEffect(() => {
@@ -162,14 +177,29 @@ const ChatPanel = ({ chat, onBack, className }) => {
 			</div>
 
 			{/* Input Area */}
-			<div className="pt-3 border-t border-gray-700 flex items-center bg-primary/20 backdrop-blur-md space-x-3 relative">
+			{/* Input Area */}
+			<div className="pt-3 border-t border-gray-700 flex items-center bg-primary/20 backdrop-blur-md space-x-3 relative"> {/* Added relative positioning */}
 				<button
+					ref={emojiButtonRef}
 					onClick={() => setShowEmojiPicker(!showEmojiPicker)}
 					className="p-2 hover:bg-white/10 rounded-full transition"
 				>
 					<FaceSmileIcon className="w-6 h-6 text-gray-400" />
 				</button>
-				{showEmojiPicker && <EmojiPicker onEmojiClick={e => setNewMessage(prev => prev + e.emoji)} />}
+
+				{/* Emoji Picker as Overlay */}
+				{showEmojiPicker && (
+					<div
+						ref={emojiPickerRef}
+						className="absolute bottom-full left-0 mb-2 z-50"
+					>
+						<EmojiPicker
+							onEmojiClick={e => setNewMessage(prev => prev + e.emoji)}
+							previewConfig={{ showPreview: false }}
+						/>
+					</div>
+				)}
+
 				<input
 					type="text"
 					className="flex-1 p-2 pl-4 bg-white/20 text-white rounded-full"
