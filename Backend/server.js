@@ -4,6 +4,14 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const mime = require('mime-types');
+const { getDatabase, ref, set, push, serverTimestamp } = require('firebase/database');
+const { initializeApp } = require('firebase/app');
+
+// Initialize Firebase
+const firebaseConfig = { /* your config */ };
+const firebaseApp = initializeApp(firebaseConfig);
+const database = getDatabase(firebaseApp);
+
 
 // Create uploads directory if it doesn't exist
 const uploadDir = path.join(__dirname, 'uploads');
@@ -18,6 +26,13 @@ const wss = new WebSocket.Server({ port: 8080 }, () => {
 // Store active connections and chat rooms
 const activeConnections = new Map(); // { userId: { socket, chatIds } }
 const chatRooms = new Map(); // { chatId: { participants, messages, typingUsers } }
+
+
+async function getChatHistoryFromFirebase(chatId) {
+	const dbRef = ref(database, `chats/${chatId}/messages`);
+	const snapshot = await get(dbRef);
+	return snapshot.val() ? Object.values(snapshot.val()) : [];
+}
 
 wss.on('connection', (ws, request) => {
 	const { query } = url.parse(request.url, true);
@@ -116,11 +131,16 @@ wss.on('connection', (ws, request) => {
 				id: uuidv4(),
 				text: message.text,
 				sender: userId,
-				timestamp: Date.now(),
-				status: 'delivered'
+				timestamp: serverTimestamp(),
+				status: 'delivered',
+				chatId // Add chatId reference
 			};
 
 			chatRooms.get(chatId).messages.push(textMessage);
+			const messageRef = ref(database, `chats/${chatId}/messages/${textMessage.id}`);
+			await set(messageRef, textMessage);
+
+			// Then broadcast to participants
 			broadcastToChat(chatId, textMessage);
 
 		} catch (error) {
