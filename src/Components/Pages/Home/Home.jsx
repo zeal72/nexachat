@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MessagePanel from './MessagePanel';
-import Sidebar from './Sidebar';
 import ChatPanel from './ChatPanel';
 import DirectoryPanel from './DirectoryPanel';
 import { auth, database } from '../../../../firebaseConfig';
+import { getAuth, setPersistence, browserSessionPersistence } from "firebase/auth";
+import { onAuthStateChanged } from 'firebase/auth';
 import { ref, set, get, push, onValue, serverTimestamp } from 'firebase/database';
 import './../../../App.css';
+import Sidebar from './sidebar';
 
 const Home = () => {
 	const [activeScreen, setActiveScreen] = useState('messages');
@@ -56,24 +58,21 @@ const Home = () => {
 			const selectedUserId = selectedUser.uid;
 
 			const chatsRef = ref(database, 'chats');
-			const snapshot = await get(chatsRef);
 
-			let chatId = null;
-			snapshot.forEach((child) => {
-				const chat = child.val();
-				if (chat.participants?.includes(userId) && chat.participants?.includes(selectedUserId)) {
-					chatId = child.key;
-				}
-			});
+			// Construct a unique chat ID based on user IDs
+			const chatId = [userId, selectedUserId].sort().join('_');
 
-			if (!chatId) {
-				const newChatRef = push(chatsRef);
-				chatId = newChatRef.key;
-				await set(newChatRef, {
+			// Check if the chat already exists
+			const chatRef = ref(database, `chats/${chatId}`);
+			const snapshot = await get(chatRef);
+
+			if (!snapshot.exists()) {
+				// Create a new chat if it doesn't exist
+				await set(chatRef, {
 					participants: [userId, selectedUserId],
 					createdAt: serverTimestamp(),
 					type: 'personal',
-					members: [userId, selectedUserId]
+					members: [userId, selectedUserId],
 				});
 			}
 
@@ -82,7 +81,7 @@ const Home = () => {
 				userName: selectedUser.name,
 				userProfilePicture: selectedUser.photoURL,
 				type: 'personal',
-				members: [userId, selectedUserId]
+				members: [userId, selectedUserId],
 			});
 
 		} catch (error) {
@@ -90,13 +89,24 @@ const Home = () => {
 		}
 	};
 
+	useEffect(() => {
+		const authInstance = getAuth();
+		setPersistence(authInstance, browserSessionPersistence)
+			.then(() => {
+				console.log("Auth persistence set to session-based");
+			})
+			.catch((error) => {
+				console.error("Error setting auth persistence:", error);
+			});
+	}, []);
 	// Auth state handler
 	useEffect(() => {
+
 		const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
 			try {
 				setCurrentUser(user);
 				if (user) {
-					await set(ref(database, `users/${user.uid}`), {
+					await set(ref(database, `users/${user.uid}`), {  // ✅ Fixed path
 						uid: user.uid,
 						email: user.email,
 						name: user.displayName,
@@ -164,6 +174,7 @@ const Home = () => {
 							<ChatPanel
 								chat={selectedChat}
 								onBack={() => setActiveScreen('messages')}
+								className="flex-1 basis-1/2"
 							/>
 						)}
 						{activeScreen === 'directory' && (
@@ -171,6 +182,7 @@ const Home = () => {
 						)}
 					</div>
 				)}
+
 			</div>
 		</div>
 	);

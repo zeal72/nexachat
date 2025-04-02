@@ -1,3 +1,4 @@
+require('dotenv').config();
 const WebSocket = require('ws');
 const url = require('url');
 const { v4: uuidv4 } = require('uuid');
@@ -8,7 +9,17 @@ const { getDatabase, ref, set, push, serverTimestamp } = require('firebase/datab
 const { initializeApp } = require('firebase/app');
 
 // Initialize Firebase
-const firebaseConfig = { /* your config */ };
+const firebaseConfig = {
+	apiKey: process.env.VITE_FIREBASE_API_KEY,
+	authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+	databaseURL: process.env.VITE_FIREBASE_DATABASE_URL,
+	projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+	storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+	messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+	appId: process.env.VITE_FIREBASE_APP_ID,
+	measurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID
+};
+
 const firebaseApp = initializeApp(firebaseConfig);
 const database = getDatabase(firebaseApp);
 
@@ -131,14 +142,14 @@ wss.on('connection', (ws, request) => {
 				id: uuidv4(),
 				text: message.text,
 				sender: userId,
-				timestamp: serverTimestamp(),
+				// timestamp: serverTimestamp(),
 				status: 'delivered',
 				chatId // Add chatId reference
 			};
 
 			chatRooms.get(chatId).messages.push(textMessage);
 			const messageRef = ref(database, `chats/${chatId}/messages/${textMessage.id}`);
-			await set(messageRef, textMessage);
+			await set(messageRef, { ...textMessage, timestamp: serverTimestamp() });
 
 			// Then broadcast to participants
 			broadcastToChat(chatId, textMessage);

@@ -1,80 +1,53 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import {
-	PaperAirplaneIcon,
-	FaceSmileIcon,
-	CheckIcon,
-	UserIcon,
-	XMarkIcon,
-} from "@heroicons/react/24/outline";
+import React, { useState, useEffect, useRef } from "react";
+import { PaperAirplaneIcon, FaceSmileIcon, CheckIcon, UserIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { motion } from "framer-motion";
 import EmojiPicker from "emoji-picker-react";
-import { ref, push, onValue, serverTimestamp } from "firebase/database";
+import { ref, push, onValue } from "firebase/database";
 import { auth, database } from "../../../../firebaseConfig";
 import { useChatStore } from "../../../store/chatstore";
-import { debounce } from "lodash";  // Import debounce
+import { debounce } from 'lodash';
 
 const generateWebSocketURL = (chatId) => `ws://localhost:8080/${chatId}`;
 
 const ChatPanel = ({ chat, onBack, className }) => {
 	const [newMessage, setNewMessage] = useState("");
-	// const [messages, setMessages] = useState([]); // REMOVE - use store
-	const showEmojiPicker = useRef(false); // Ref instead of state
+	const [messages, setMessages] = useState([]);
+	const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 	const messagesEndRef = useRef(null);
 	const [webSocket, setWebSocket] = useState(null);
-	const [errorMessage, setErrorMessage] = useState("");
+	const [typingUsers, setTypingUsers] = useState([]);
 	const activeChat = useChatStore((state) => state.activeChat);
 	const addMessage = useChatStore((state) => state.addMessage);
-	const getChatMessages = useChatStore((state) => state.getChatMessages);
 	const emojiPickerRef = useRef(null);
 	const emojiButtonRef = useRef(null);
-	const [typingUsers, setTypingUsers] = useState([]);
-	const clearMessages = useChatStore((state) => state.clearMessages);  // Get clearMessages from store
-	const messages = getChatMessages(chat?.chatId); // Get messages from store, using getter
 
-	// --- Emoji Picker ---
 	useEffect(() => {
 		const handleClickOutside = (event) => {
-			if (showEmojiPicker.current &&
+			if (showEmojiPicker &&
 				!emojiPickerRef.current?.contains(event.target) &&
 				!emojiButtonRef.current?.contains(event.target)) {
-				showEmojiPicker.current = false;
-				forceUpdate();  // Force a re-render (see below)
+				setShowEmojiPicker(false);
 			}
 		};
-
 		document.addEventListener('mousedown', handleClickOutside);
 		return () => document.removeEventListener('mousedown', handleClickOutside);
-	}, []);
+	}, [showEmojiPicker]);
 
-	// Force re-render hook - needed for ref-based showEmojiPicker
-	const [, updateState] = useState();
-	const forceUpdate = useCallback(() => updateState({}), []);
-
-	const toggleEmojiPicker = () => {
-		showEmojiPicker.current = !showEmojiPicker.current;
-		forceUpdate();  // Force a re-render
-	};
-
-	// --- Message Synchronization ---
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 	}, [messages]);
 
-	// --- WebSocket Management ---
 	useEffect(() => {
 		if (!chat?.chatId) return;
 
 		const ws = new WebSocket(generateWebSocketURL(chat.chatId));
 		setWebSocket(ws);
 
-		ws.onopen = () => {
-			console.log("WebSocket connected");
-		};
-
 		ws.onmessage = (event) => {
 			try {
 				const message = JSON.parse(event.data);
 				if (message.chatId === chat.chatId) {
+					setMessages(prev => [...prev, message]);
 					addMessage(message);
 				}
 			} catch (error) {
@@ -82,74 +55,11 @@ const ChatPanel = ({ chat, onBack, className }) => {
 			}
 		};
 
-		ws.onerror = (error) => {
-			console.error("WebSocket error:", error);
-		};
+		ws.onclose = () => setWebSocket(null);
 
-		ws.onclose = () => {
-			console.log("WebSocket disconnected");
-		};
+		return () => ws.close();
+	}, [chat?.chatId]);
 
-		const handleTyping = debounce(() => {
-			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({
-					type: 'typing',
-					isTyping: false,
-					userId: auth.currentUser?.uid,  // Add userId
-					chatId: chat.chatId  // Add chatId
-				}));
-			}
-		}, 1000);
-
-		const typingHandler = () => {
-			if (ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({
-					type: 'typing',
-					isTyping: true,
-					userId: auth.currentUser?.uid,  // Add userId
-					chatId: chat.chatId  // Add chatId
-				}));
-				handleTyping();
-			}
-		};
-
-		const markMessagesAsRead = () => {
-			// Implementation remains the same
-		};
-
-		const handleInputChange = (e) => {
-			setNewMessage(e.target.value);
-			typingHandler();
-		};
-
-		// Set event listeners
-		ws.addEventListener('message', (event) => {
-			try {
-				const data = JSON.parse(event.data);
-				if (data.type === 'typing') {
-					setTypingUsers(prev => {
-						if (data.isTyping) {
-							return prev.includes(data.userId) ? prev : [...prev, data.userId];
-						} else {
-							return prev.filter(id => id !== data.userId);
-						}
-					});
-				}
-			} catch (error) {
-				console.error("Error processing typing indicator:", error);
-			}
-		});
-
-		window.addEventListener('focus', markMessagesAsRead);
-
-		return () => {
-			window.removeEventListener('focus', markMessagesAsRead);
-			ws.close();
-			clearMessages(chat.chatId); // Clear messages when chat is unmounted
-		};
-	}, [chat?.chatId, addMessage, clearMessages]);
-
-	// --- Firebase Message Sync ---
 	useEffect(() => {
 		if (!chat?.chatId) return;
 
@@ -161,37 +71,46 @@ const ChatPanel = ({ chat, onBack, className }) => {
 					id: key,
 					...messagesData[key]
 				}));
-				// setMessages(messagesList); // NO - Store handles state
-				messagesList.forEach(msg => addMessage(msg)); // Populate store
+				setMessages(messagesList);
 			}
 		});
 
 		return () => unsubscribe();
-	}, [chat?.chatId, addMessage]);
+	}, [chat?.chatId]);
 
-	// --- Message Sending Logic ---
 	const sendMessage = async () => {
 		if (!chat?.chatId || !newMessage.trim()) return;
 
-		const tempId = Date.now().toString();
 		const messageData = {
-			id: tempId,
+			id: Date.now().toString(),
 			text: newMessage,
 			senderId: auth.currentUser?.uid,
 			timestamp: Date.now(),
 			chatId: chat.chatId,
-			status: 'sending'
+			status: "sent",
 		};
 
-		addMessage(messageData);
-		setNewMessage('');
+		setMessages((prev) => [...prev, messageData]);
+		setNewMessage("");
 
 		try {
+			// Send via WebSocket
 			if (webSocket?.readyState === WebSocket.OPEN) {
 				webSocket.send(JSON.stringify(messageData));
 			}
+
+			// Push to Firebase
+			const chatMessagesRef = ref(database, `chats/${chat.chatId}/messages`);
+			await push(chatMessagesRef, { ...messageData, status: "delivered" });
+
+			// Update message status to delivered
+			setMessages((prev) =>
+				prev.map((msg) =>
+					msg.id === messageData.id ? { ...msg, status: "delivered" } : msg
+				)
+			);
 		} catch (error) {
-			setErrorMessage("Failed to send message. Please try again.");
+			console.error("Message sending failed:", error);
 		}
 	};
 
@@ -229,50 +148,57 @@ const ChatPanel = ({ chat, onBack, className }) => {
 
 			{/* Messages Display */}
 			<div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
-				{messages && messages.map((msg) => ( // Use messages from the store
+				{messages.map((msg) => (
 					<motion.div
 						key={msg.id}
 						initial={{ opacity: 0, y: 10 }}
 						animate={{ opacity: 1, y: 0 }}
-						className={`flex ${msg.senderId === auth.currentUser?.uid ? "justify-end" : "justify-start"}`}
+						className={`flex ${msg.senderId === auth.currentUser?.uid ? "justify-end" : "justify-start"
+							}`}
 					>
-						<div className={`p-3 max-w-xs text-sm rounded-xl shadow-md ${msg.senderId === auth.currentUser?.uid
-							? "bg-gray-900 text-white"
-							: "bg-white/20 text-white"
-							}`}>
+						<div
+							className={`p-3 max-w-xs text-sm rounded-xl shadow-md ${msg.senderId === auth.currentUser?.uid
+								? "bg-gray-900 text-white"
+								: "bg-white/20 text-white"
+								}`}
+						>
 							<p>{msg.text}</p>
 							<div className="flex items-center justify-end mt-1 space-x-1">
 								<span className="text-xs text-gray-300">
 									{new Date(msg.timestamp).toLocaleTimeString()}
 								</span>
-								{msg.status === 'sending' && (
-									<span className="text-xs text-gray-400">Sending...</span>
+								{msg.status === "sent" && <CheckIcon className="w-4 h-4 text-gray-400" />}
+								{msg.status === "delivered" && (
+									<>
+										<CheckIcon className="w-4 h-4 text-gray-400" />
+										<CheckIcon className="w-4 h-4 text-gray-400" />
+									</>
 								)}
-								{msg.status === 'delivered' && (
-									<CheckIcon className="w-4 h-4 text-gray-400" />
-								)}
-								{msg.status === 'read' && (
-									<CheckIcon className="w-4 h-4 text-blue-400" />
+								{msg.status === "read" && (
+									<>
+										<CheckIcon className="w-4 h-4 text-blue-400" />
+										<CheckIcon className="w-4 h-4 text-blue-400" />
+									</>
 								)}
 							</div>
 						</div>
 					</motion.div>
 				))}
-				<div ref={messagesEndRef} />
-			</div>
 
+				<div ref={messagesEndRef} />
+			</div>...{/* Input Area */}
 			{/* Input Area */}
 			<div className="pt-3 border-t border-gray-700 flex items-center bg-primary/20 backdrop-blur-md space-x-3 relative"> {/* Added relative positioning */}
 				<button
 					ref={emojiButtonRef}
-					onClick={toggleEmojiPicker}  // Use toggle function
+					onClick={() => setShowEmojiPicker(!showEmojiPicker)}
 					className="p-2 hover:bg-white/10 rounded-full transition"
 				>
 					<FaceSmileIcon className="w-6 h-6 text-gray-400" />
 				</button>
 
 				{/* Emoji Picker as Overlay */}
-				{showEmojiPicker.current && (
+				{showEmojiPicker && (
 					<div
 						ref={emojiPickerRef}
 						className="absolute bottom-full left-0 mb-2 z-50"
@@ -297,6 +223,7 @@ const ChatPanel = ({ chat, onBack, className }) => {
 				</button>
 			</div>
 		</motion.div>
+
 	);
 };
 
