@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import MessagePanel from './MessagePanel';
+import MessagePanel from './Messagepanel';
 import ChatPanel from './ChatPanel';
 import DirectoryPanel from './DirectoryPanel';
 import { auth, database } from '../../../../firebaseConfig';
@@ -65,9 +65,7 @@ const Home = () => {
 			// Check if the chat already exists
 			const chatRef = ref(database, `chats/${chatId}`);
 			const snapshot = await get(chatRef);
-
 			if (!snapshot.exists()) {
-				// Create a new chat if it doesn't exist
 				await set(chatRef, {
 					participants: [userId, selectedUserId],
 					createdAt: serverTimestamp(),

@@ -151,6 +151,7 @@ wss.on('connection', (ws, request) => {
 			const messageRef = ref(database, `chats/${chatId}/messages/${textMessage.id}`);
 			await set(messageRef, { ...textMessage, timestamp: serverTimestamp() });
 
+
 			// Then broadcast to participants
 			broadcastToChat(chatId, textMessage);
 
