@@ -6,7 +6,7 @@ import DirectoryPanel from './DirectoryPanel';
 import { auth, database } from '../../../../firebaseConfig';
 import { getAuth, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { onAuthStateChanged } from 'firebase/auth';
-import { ref, set, get, push, onValue, serverTimestamp } from 'firebase/database';
+import { ref, set, get, push, onValue, serverTimestamp, update } from 'firebase/database';
 import './../../../App.css';
 import Sidebar from './sidebar';
 
@@ -97,6 +97,7 @@ const Home = () => {
 				console.error("Error setting auth persistence:", error);
 			});
 	}, []);
+
 	// Auth state handler
 	useEffect(() => {
 
@@ -104,12 +105,13 @@ const Home = () => {
 			try {
 				setCurrentUser(user);
 				if (user) {
-					await set(ref(database, `users/${user.uid}`), {  // ✅ Fixed path
+					await update(ref(database, `users/${user.uid}`), {
 						uid: user.uid,
 						email: user.email,
 						name: user.displayName,
 						photoURL: user.photoURL
 					});
+					console.log("User added/updated:", user.uid);
 					GetChats(user);
 				}
 			} catch (error) {
