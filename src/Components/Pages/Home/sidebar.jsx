@@ -63,7 +63,7 @@ const Sidebar = ({ onScreenChange, activeScreen }) => {
 			</div>
 
 			{/* Mobile Bottom Bar */}
-			<div className="lg:hidden flex justify-around fixed bottom-0 left-0 w-[95%] p-2 bg-glass-bg backdrop-blur-lg rounded-lg shadow-lg z-50">
+			<div className="lg:hidden flex justify-around fixed bottom-1 left-0 w-[95%] p-2 bg-glass-bg backdrop-blur-lg rounded-lg shadow-lg z-50">
 				<Link
 					to="/"
 					className={`flex flex-col items-center hover:text-highlight ${activeScreen === "home" ? "text-highlight" : ""}`}
@@ -133,7 +133,7 @@ const Sidebar = ({ onScreenChange, activeScreen }) => {
 
 			{/* Tablet Menu Button */}
 			<button
-				className="hidden md:flex lg:hidden fixed top-4 left-4 z-50 p-2 bg-glass-bg backdrop-blur-lg rounded-lg shadow-lg"
+				className="hidden sm:flex md:hidden fixed top-4 left-4 z-50 p-2 bg-glass-bg backdrop-blur-lg rounded-lg shadow-lg"
 				onClick={() => setIsOpen(true)}
 			>
 				<Bars3Icon className="w-6 h-6 text-white" />
@@ -147,7 +147,7 @@ const Sidebar = ({ onScreenChange, activeScreen }) => {
 						animate={{ x: 0 }}
 						exit={{ x: -250 }}
 						transition={{ type: "spring", stiffness: 120 }}
-						className="fixed top-0 left-0 h-full w-64 bg-glass-bg backdrop-blur-lg rounded-lg shadow-lg z-50"
+						className="hidden fixed top-0 left-0 h-full w-64 bg-glass-bg backdrop-blur-lg rounded-lg shadow-lg z-50"
 					>
 						{/* Close Button */}
 						<button
