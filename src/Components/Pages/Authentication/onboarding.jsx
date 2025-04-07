@@ -41,7 +41,7 @@ const Onboarding = () => {
 			localStorage.setItem("userName", user.displayName || "");
 
 			toast.success(`Welcome, ${user.displayName || "User"}!`);
-			setTimeout(() => navigate("/Home"), 1000);
+			setTimeout(() => navigate("/Home"), 500);
 		} catch (error) {
 			handleAuthError(error);
 		} finally {

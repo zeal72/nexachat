@@ -7,7 +7,7 @@ import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { Link, useNavigate } from "react-router-dom";
 import { auth, database, googleProvider } from "../../../../firebaseConfig";
 import { createUserWithEmailAndPassword, signInWithPopup } from "firebase/auth";
-import { set, ref } from "firebase/database";
+import { set, ref, get } from "firebase/database";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import zxcvbn from "zxcvbn";
@@ -15,7 +15,6 @@ import zxcvbn from "zxcvbn";
 const CloudinaryUploadWidget = ({ onImageUpload }) => {
 	const cloudinaryRef = useRef();
 	const widgetRef = useRef();
-
 	useEffect(() => {
 		cloudinaryRef.current = window.cloudinary;
 		widgetRef.current = cloudinaryRef.current.createUploadWidget(
@@ -24,11 +23,16 @@ const CloudinaryUploadWidget = ({ onImageUpload }) => {
 				uploadPreset: 'Nexachat',
 				cropping: true,
 				croppingAspectRatio: 1,
-				showPoweredBy: false
+				showPoweredBy: false,
+				multiple: false, // Ensure single image upload
+				defaultSource: 'local' // Prefer local files
 			},
 			(error, result) => {
-				if (!error && result.event === 'success') {
-					onImageUpload(result.info.secure_url);
+				if (!error && result && result.event === 'success') {
+					const secureUrl = result.info.secure_url;
+					if (secureUrl) {
+						onImageUpload(secureUrl);
+					}
 				}
 			}
 		);
@@ -113,7 +117,7 @@ const SignUp = () => {
 			localStorage.setItem("userName", name);
 
 			toast.success("Account created successfully!");
-			setTimeout(() => navigate("/Home"), 1000);
+			setTimeout(() => navigate("/Home"), 500);
 		} catch (error) {
 			handleAuthError(error);
 		} finally {

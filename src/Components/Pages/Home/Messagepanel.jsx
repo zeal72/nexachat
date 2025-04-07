@@ -6,6 +6,8 @@ import Header from "./header";
 import { useChatStore } from "../../../store/chatstore";
 import { auth, database } from "../../../../firebaseConfig";
 import { ref, onValue } from "firebase/database";
+import { useCallback } from "react";
+// import { debounce } from "lodash";
 
 const MessagePanel = ({ onChatSelect }) => {
 	const [search, setSearch] = useState("");
@@ -14,7 +16,30 @@ const MessagePanel = ({ onChatSelect }) => {
 	const [loading, setLoading] = useState(true);
 	const { setActiveChat } = useChatStore();
 
-	// ✅ Real-time listener for all users (excludes current user)
+	// Fetch users with realtime updates
+	useEffect(() => {
+		const fetchUsers = async () => {
+			try {
+				const usersRef = ref(database, "users");
+				onValue(usersRef, (snapshot) => {
+					const usersData = snapshot.val();
+					if (usersData) {
+						const usersList = Object.keys(usersData).map((key) => ({
+							id: usersData[key].uid, // Corrected to use UID instead of snapshot key
+							...usersData[key],
+						}));
+						const currentUserUid = auth.currentUser?.uid;
+						setUsers(usersList.filter(user => user.uid !== currentUserUid));
+					}
+				});
+			} catch (error) {
+				console.error("User fetch error:", error);
+			}
+		};
+
+		fetchUsers();
+	}, []);
+
 	useEffect(() => {
 		const usersRef = ref(database, "users");
 		const unsubscribe = onValue(usersRef, (snapshot) => {
@@ -31,7 +56,6 @@ const MessagePanel = ({ onChatSelect }) => {
 		});
 		return () => unsubscribe();
 	}, []);
-
 	const handleMessageClick = async (user) => {
 		setActiveChat({
 			id: user.uid,
@@ -56,7 +80,7 @@ const MessagePanel = ({ onChatSelect }) => {
 				<MagnifyingGlassIcon className="absolute left-3 top-2 w-5 h-5 text-gray-400" />
 			</div>
 
-			<div className="flex-1 space-y-4">
+			<div className="flex-1 space-y-4 mb-12">
 				{users
 					.filter(user => user.name?.toLowerCase().includes(search.toLowerCase()))
 					.map((user) => (

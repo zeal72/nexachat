@@ -1,67 +1,23 @@
-import { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { FaFacebook, FaGoogle, FaApple } from "react-icons/fa";
-import { SiGmail } from "react-icons/si";
+import { FaFacebook, FaEye, FaEyeSlash } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
 import { RiAppleFill } from "react-icons/ri";
-import { auth, googleProvider, database } from "../../../../firebaseConfig";
-import { signInWithEmailAndPassword, signInWithPopup, onAuthStateChanged } from "firebase/auth";
-import { toast } from "react-toastify";
-import { useNavigate, Link } from "react-router-dom";
-import "react-toastify/dist/ReactToastify.css";
+import { Link, useNavigate } from "react-router-dom";
+import { auth, database, googleProvider } from "../../../../firebaseConfig";
+import { signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
 import { get, ref } from "firebase/database";
+import { toast } from "react-toastify";
 
 const SignIn = () => {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
+	const [showPassword, setShowPassword] = useState(false);
 	const [loading, setLoading] = useState(false);
-	const [isMounted, setIsMounted] = useState(true);
 	const navigate = useNavigate();
 
-	// Cleanup function to prevent memory leaks
-	useEffect(() => {
-		return () => setIsMounted(false);
-	}, []);
-
-	const handleSignIn = async (e) => {
-		e.preventDefault();
-		if (loading) return;
-		setLoading(true);
-
-		const trimmedEmail = email.trim();
-		const trimmedPassword = password.trim();
-
-		if (!trimmedEmail || !trimmedPassword) {
-			toast.error("Please enter your email and password.");
-			setLoading(false);
-			return;
-		}
-
-		try {
-			const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
-			const user = userCredential.user;
-
-			// Fetch additional user data from Realtime Database
-			const userRef = ref(database, `users/${user.uid}`);
-			const snapshot = await get(userRef);
-
-			if (snapshot.exists()) {
-				const userData = snapshot.val();
-				localStorage.setItem("profileImage", userData.photoURL || "");
-				localStorage.setItem("userName", userData.displayName || "");
-
-				toast.success("Login successful!");
-				if (isMounted) {
-					setTimeout(() => navigate("/Home"), 1000);
-				}
-			} else {
-				toast.error("User data not found. Please complete your profile.");
-			}
-		} catch (error) {
-			handleAuthError(error);
-		} finally {
-			if (isMounted) setLoading(false);
-		}
+	const togglePasswordVisibility = () => {
+		setShowPassword(!showPassword);
 	};
 
 	const handleGoogleSignIn = async () => {
@@ -72,49 +28,82 @@ const SignIn = () => {
 			const result = await signInWithPopup(auth, googleProvider);
 			const user = result.user;
 
-			// Check if user exists in database
 			const userRef = ref(database, `users/${user.uid}`);
 			const snapshot = await get(userRef);
 
 			if (!snapshot.exists()) {
-				// Optionally create user profile here if needed
-				toast.info("Welcome new user! Please complete your profile.");
+				// Create user profile if not found (fallback)
+				await set(userRef, {
+					name: user.displayName || "",
+					email: user.email || "",
+					photoURL: user.photoURL || "",
+					createdAt: new Date().toISOString(),
+					uid: user.uid,
+				});
 			}
 
 			localStorage.setItem("profileImage", user.photoURL || "");
 			localStorage.setItem("userName", user.displayName || "");
 
 			toast.success("Google login successful!");
-			if (isMounted) {
-				setTimeout(() => navigate("/Home"), 1000);
-			}
+			setTimeout(() => navigate("/Home"), 800);
 		} catch (error) {
 			handleAuthError(error);
 		} finally {
-			if (isMounted) setLoading(false);
+			setLoading(false);
+		}
+	};
+
+	const handleSignIn = async (e) => {
+		e.preventDefault();
+		if (loading) return;
+
+		setLoading(true);
+
+		if (!email || !password) {
+			toast.error("Please enter both email and password.");
+			setLoading(false);
+			return;
+		}
+
+		try {
+			const userCredential = await signInWithEmailAndPassword(auth, email, password);
+			const user = userCredential.user;
+
+			const snapshot = await get(ref(database, `users/${user.uid}`));
+			const userData = snapshot.val();
+
+			localStorage.setItem("profileImage", userData?.photoURL || "");
+			localStorage.setItem("userName", userData?.name || "");
+
+			toast.success("Logged in successfully!");
+			setTimeout(() => navigate("/Home"), 500);
+		} catch (error) {
+			handleAuthError(error);
+		} finally {
+			setLoading(false);
 		}
 	};
 
 	const handleAuthError = (error) => {
 		switch (error.code) {
 			case "auth/user-not-found":
+				toast.error("No account found with this email.");
+				break;
 			case "auth/wrong-password":
-				toast.error("Invalid email or password.");
+				toast.error("Incorrect password.");
 				break;
-			case "auth/too-many-requests":
-				toast.error("Too many attempts. Try again later or reset your password.");
-				break;
-			case "auth/popup-closed-by-user":
-				toast.info("Sign in cancelled.");
+			case "auth/invalid-email":
+				toast.error("Invalid email address.");
 				break;
 			default:
-				toast.error("An error occurred: " + error.message);
-				console.error("Auth error:", error);
+				toast.error("Login failed: " + error.message);
+				console.error(error);
 		}
 	};
 
 	return (
-		<div className="h-screen flex justify-center items-center bg-cover bg-center px-4 bg-gradient-to-br from-blue-900 to-purple-900">
+		<div className="min-h-screen flex justify-center items-center bg-gradient-to-br from-blue-900 to-purple-900 p-4">
 			<motion.div
 				className="w-full max-w-md p-8 bg-white/10 backdrop-blur-lg rounded-xl shadow-lg border border-white/20"
 				initial={{ opacity: 0, scale: 0.9 }}
@@ -122,10 +111,8 @@ const SignIn = () => {
 				transition={{ duration: 0.3 }}
 			>
 				<div className="text-center mb-8">
-					<h2 className="text-3xl font-bold text-white mb-1">
-						Welcome to <span className="text-blue-300">NexaChat</span>
-					</h2>
-					<p className="text-gray-300">Connect with your friends and colleagues</p>
+					<h2 className="text-3xl font-bold text-white mb-1">Welcome Back</h2>
+					<p className="text-gray-300">Sign in to continue using NexaChat</p>
 				</div>
 
 				<div className="flex justify-center gap-4 mb-6">
@@ -165,85 +152,59 @@ const SignIn = () => {
 						<div className="w-full border-t border-gray-400/50"></div>
 					</div>
 					<div className="relative flex justify-center">
-						<span className="px-2 bg-transparent text-gray-300 text-sm">or continue with email</span>
+						<span className="px-2 bg-transparent text-gray-300 text-sm">or sign in with email</span>
 					</div>
 				</div>
 
 				<form onSubmit={handleSignIn} className="space-y-4">
 					<div className="space-y-1">
-						<label className="text-gray-300 text-sm font-medium">Email address</label>
+						<label className="text-gray-300 text-sm font-medium">Email Address</label>
 						<input
 							type="email"
+							placeholder="you@example.com"
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 text-white placeholder-gray-400 transition"
-							placeholder="you@example.com"
 							required
 						/>
 					</div>
 
 					<div className="space-y-1">
 						<label className="text-gray-300 text-sm font-medium">Password</label>
-						<input
-							type="password"
-							value={password}
-							onChange={(e) => setPassword(e.target.value)}
-							className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 text-white placeholder-gray-400 transition"
-							placeholder="••••••••"
-							required
-							minLength={6}
-						/>
-					</div>
-
-					<div className="flex items-center justify-between">
-						<div className="flex items-center">
+						<div className="relative">
 							<input
-								type="checkbox"
-								id="remember-me"
-								className="h-4 w-4 text-blue-500 focus:ring-blue-400 border-white/20 rounded bg-white/10"
+								type={showPassword ? "text" : "password"}
+								placeholder="••••••••"
+								value={password}
+								onChange={(e) => setPassword(e.target.value)}
+								className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 text-white placeholder-gray-400 transition pr-10"
+								required
 							/>
-							<label htmlFor="remember-me" className="ml-2 text-sm text-gray-300">
-								Remember me
-							</label>
+							<button
+								type="button"
+								className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition"
+								onClick={togglePasswordVisibility}
+							>
+								{showPassword ? <FaEyeSlash /> : <FaEye />}
+							</button>
 						</div>
-						<Link
-							to="/forgot-password"
-							className="text-sm text-blue-300 hover:text-blue-200 hover:underline"
-						>
-							Forgot password?
-						</Link>
 					</div>
 
-					<motion.button
+					<button
 						type="submit"
-						whileHover={{ scale: 1.02 }}
-						whileTap={{ scale: 0.98 }}
-						className="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg shadow-md transition flex justify-center items-center"
 						disabled={loading}
+						className="w-full py-3 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 transition duration-200"
 					>
-						{loading ? (
-							<>
-								<svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-									<circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-									<path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-								</svg>
-								Signing in...
-							</>
-						) : (
-							"Sign in"
-						)}
-					</motion.button>
+						{loading ? "Signing In..." : "Sign In"}
+					</button>
 				</form>
 
-				<div className="mt-6 text-center text-sm text-gray-300">
+				<p className="text-gray-400 text-sm mt-6 text-center">
 					Don't have an account?{" "}
-					<Link
-						to="/signup"
-						className="font-medium text-blue-300 hover:text-blue-200 hover:underline"
-					>
-						Sign up
+					<Link to="/SignUp" className="text-blue-300 hover:underline">
+						Sign Up
 					</Link>
-				</div>
+				</p>
 			</motion.div>
 		</div>
 	);

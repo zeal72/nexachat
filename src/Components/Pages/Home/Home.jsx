@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import MessagePanel from './Messagepanel';
-import ChatPanel from './ChatPanel';
-import DirectoryPanel from './DirectoryPanel';
 import { auth, database } from '../../../../firebaseConfig';
-import { getAuth, setPersistence, browserSessionPersistence } from "firebase/auth";
+import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { onAuthStateChanged } from 'firebase/auth';
 import { ref, set, get, push, onValue, serverTimestamp, update } from 'firebase/database';
 import './../../../App.css';
+import BlurLoader from './Blur';
 import Sidebar from './sidebar';
+
+// Lazy-loaded components
+const MessagePanel = React.lazy(() => import('./Messagepanel'));
+const ChatPanel = React.lazy(() => import('./ChatPanel'));
+const DirectoryPanel = React.lazy(() => import('./DirectoryPanel'));
 
 const Home = () => {
 	const [activeScreen, setActiveScreen] = useState('messages');
@@ -17,6 +20,9 @@ const Home = () => {
 	const [chats, setChats] = useState([]);
 	const [isMobile, setIsMobile] = useState(window.innerWidth < 800);
 	const navigate = useNavigate();
+	const [authLoading, setAuthLoading] = useState(true);
+	const [users, setUsers] = useState([]);
+	const [initialLoad, setInitialLoad] = useState(true);
 
 	// Update screen size dynamically
 	useEffect(() => {
@@ -40,13 +46,14 @@ const Home = () => {
 					}
 				});
 				setChats(fetchedChats);
+				if (initialLoad) setInitialLoad(false);
 			} catch (error) {
 				console.error('Error fetching chats:', error);
 			}
 		});
 
 		return () => unsubscribeChats();
-	}, []);
+	}, [initialLoad]);
 
 	// Unified chat creation/handling logic
 	const onStartChat = async (selectedUser) => {
@@ -89,44 +96,45 @@ const Home = () => {
 
 	useEffect(() => {
 		const authInstance = getAuth();
-		setPersistence(authInstance, browserSessionPersistence)
+		setPersistence(authInstance, browserLocalPersistence)
 			.then(() => {
-				console.log("Auth persistence set to session-based");
+				console.log("Auth persistence set to local");
 			})
 			.catch((error) => {
 				console.error("Error setting auth persistence:", error);
+				// Fallback to in-memory persistence if local fails
+				setPersistence(authInstance, inMemoryPersistence);
 			});
 	}, []);
 
 	// Auth state handler
 	useEffect(() => {
-
-		const unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
-			try {
-				setCurrentUser(user);
-				if (user) {
-					await update(ref(database, `users/${user.uid}`), {
-						uid: user.uid,
-						email: user.email,
-						name: user.displayName,
-						photoURL: user.photoURL
-					});
-					console.log("User added/updated:", user.uid);
-					GetChats(user);
-				}
-			} catch (error) {
-				console.error('Auth state error:', error);
+		const unsubscribe = auth.onAuthStateChanged((user) => {
+			if (!user) {
+				navigate('/signin');
+				return;
 			}
+			setCurrentUser(user);
+			// Update user data in database
+			update(ref(database, `users/${user.uid}`), {
+				uid: user.uid,
+				email: user.email,
+				name: user.displayName,
+				photoURL: user.photoURL,
+				lastSeen: serverTimestamp()
+			});
 		});
 
-		return () => unsubscribeAuth();
-	}, [GetChats]);
+		return () => unsubscribe();
+	}, [navigate]);
+
 
 	// Navigation guard
-	if (!currentUser) {
-		navigate('/signin');
-		return null;
-	}
+	useEffect(() => {
+		if (!authLoading && !currentUser) {
+			navigate('/signin');
+		}
+	}, [authLoading, currentUser, navigate]);
 
 	// Handles chat selection
 	const handleChatSelect = async (user) => {
@@ -135,6 +143,10 @@ const Home = () => {
 			setActiveScreen('chat');
 		}
 	};
+
+	// if (authLoading) {
+	// 	return <BlurLoader />;
+	// }
 
 	return (
 		<div className="overflow-x-hidden relative flex-col lg:flex-row h-screen bg-cover bg-center backdrop-blur-xl inset-0 bg-white/10 bg-no-repeat bg-fixed home-background">
@@ -150,39 +162,42 @@ const Home = () => {
 				{/* Desktop Layout */}
 				{!isMobile && (
 					<div className="hidden lg:flex lg:flex-row h-full w-full">
-						<MessagePanel onChatSelect={handleChatSelect} className="flex-1 basis-1/4" />
-						{selectedChat && (
-							<ChatPanel
-								chat={selectedChat}
-								onBack={() => setActiveScreen('messages')}
-								className="flex-1 basis-1/2"
+						<Suspense fallback={<BlurLoader />}>
+							<MessagePanel onChatSelect={handleChatSelect} className="flex-1 basis-1/4" />
+							{selectedChat && (
+								<ChatPanel
+									chat={selectedChat}
+									onBack={() => setActiveScreen('messages')}
+									className="flex-1 basis-1/2"
+								/>
+							)}
+							<DirectoryPanel
+								onChatSelect={handleChatSelect}
+								userProfileImage={currentUser?.photoURL}
+								className="flex-1 basis-1/4"
 							/>
-						)}
-						<DirectoryPanel
-							onChatSelect={handleChatSelect}
-							userProfileImage={currentUser?.photoURL}
-							className="flex-1 basis-1/4"
-						/>
+						</Suspense>
 					</div>
 				)}
 
 				{/* Mobile Layout */}
 				{isMobile && (
 					<div className="lg:hidden flex-1 overflow-y-auto">
-						{activeScreen === 'messages' && <MessagePanel onChatSelect={handleChatSelect} />}
-						{activeScreen === 'chat' && selectedChat && (
-							<ChatPanel
-								chat={selectedChat}
-								onBack={() => setActiveScreen('messages')}
-								className="flex-1 basis-1/2"
-							/>
-						)}
-						{activeScreen === 'directory' && (
-							<DirectoryPanel onChatSelect={handleChatSelect} />
-						)}
+						<Suspense fallback={<BlurLoader />}>
+							{activeScreen === 'messages' && <MessagePanel onChatSelect={handleChatSelect} />}
+							{activeScreen === 'chat' && selectedChat && (
+								<ChatPanel
+									chat={selectedChat}
+									onBack={() => setActiveScreen('messages')}
+									className="flex-1 basis-1/2"
+								/>
+							)}
+							{activeScreen === 'directory' && (
+								<DirectoryPanel onChatSelect={handleChatSelect} />
+							)}
+						</Suspense>
 					</div>
 				)}
-
 			</div>
 		</div>
 	);
