@@ -64,7 +64,7 @@ const Header = ({ onStartChat }) => {
 
 					{/* Dropdown Menu */}
 					{showDropdown && (
-						<div className="absolute right-0 mt-2 w-48 bg-[#0f0f0f]/90 backdrop-blur-3xl rounded-xl shadow-xl border border-white/10 z-50 text-white text-sm overflow-hidden">
+						<div className="absolute right-0 mt-2 w-48 bg-[#0f0f0f]/70 backdrop-blur-3xl rounded-xl shadow-xl border border-white/10 z-50 text-white text-sm overflow-hidden">
 							<button
 								className="w-full flex items-center gap-2 px-4 py-2 hover:bg-white/20 transition"
 								onClick={() => {

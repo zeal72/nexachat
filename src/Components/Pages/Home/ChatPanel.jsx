@@ -153,11 +153,10 @@ const ChatPanel = ({ chat, onBack, className }) => {
 						key={msg.id}
 						initial={{ opacity: 0, y: 10 }}
 						animate={{ opacity: 1, y: 0 }}
-						className={`flex ${msg.senderId === auth.currentUser?.uid ? "justify-end" : "justify-start"
-							}`}
+						className={`flex ${msg.senderId === auth.currentUser?.uid ? "justify-end" : "justify-start"}`}
 					>
 						<div
-							className={`p-3 max-w-xs text-sm rounded-xl shadow-md ${msg.senderId === auth.currentUser?.uid
+							className={`p-3 max-w-xs text-sm rounded-xl shadow-md break-words whitespace-pre-wrap ${msg.senderId === auth.currentUser?.uid
 								? "bg-gray-900 text-white"
 								: "bg-white/20 text-white"
 								}`}
@@ -185,10 +184,12 @@ const ChatPanel = ({ chat, onBack, className }) => {
 					</motion.div>
 				))}
 
+
 				<div ref={messagesEndRef} />
 			</div>...{/* Input Area */}
 			{/* Input Area */}
-			<div className="pt-3 border-t border-gray-700 flex items-center bg-primary/20 backdrop-blur-md space-x-3 relative"> {/* Added relative positioning */}
+			<div className="pt-3 border-t border-gray-700 flex items-center bg-primary/20 backdrop-blur-md space-x-3 relative">
+				{/* Emoji Button */}
 				<button
 					ref={emojiButtonRef}
 					onClick={() => setShowEmojiPicker(!showEmojiPicker)}
@@ -197,7 +198,7 @@ const ChatPanel = ({ chat, onBack, className }) => {
 					<FaceSmileIcon className="w-6 h-6 text-gray-400" />
 				</button>
 
-				{/* Emoji Picker as Overlay */}
+				{/* Emoji Picker */}
 				{showEmojiPicker && (
 					<div
 						ref={emojiPickerRef}
@@ -210,18 +211,27 @@ const ChatPanel = ({ chat, onBack, className }) => {
 					</div>
 				)}
 
-				<input
-					type="text"
-					className="flex-1 p-2 pl-4 bg-white/20 text-white rounded-full"
+				{/* Multi-line Input */}
+				<textarea
+					className="flex-1 h-10 p-2 pl-4 bg-white/20 text-white rounded-full resize-none overflow-hidden break-words whitespace-pre-wrap focus:outline-none"
 					placeholder="Type a message..."
 					value={newMessage}
 					onChange={(e) => setNewMessage(e.target.value)}
-					onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+					onKeyDown={(e) => {
+						if (e.key === 'Enter' && !e.shiftKey) {
+							e.preventDefault();
+							sendMessage();
+						}
+					}}
 				/>
+
+
+				{/* Send Button */}
 				<button onClick={sendMessage}>
 					<PaperAirplaneIcon className="w-5 h-5 cursor-pointer text-white" />
 				</button>
 			</div>
+
 		</motion.div>
 
 	);
