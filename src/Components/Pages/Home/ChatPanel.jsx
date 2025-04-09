@@ -90,6 +90,7 @@ const ChatPanel = ({ chat, onBack, className }) => {
 	}, [chat?.chatId]);
 
 	//  to mark messages as read
+	// Change this in your ChatPanel.jsx:
 	useEffect(() => {
 		if (!chat?.chatId || !auth.currentUser?.uid) return;
 
@@ -97,7 +98,7 @@ const ChatPanel = ({ chat, onBack, className }) => {
 		const chatMessagesRef = ref(database, `chats/${chat.chatId}/messages`);
 
 		// Update read status for all messages not sent by current user
-		onValue(chatMessagesRef, (snapshot) => {
+		const unsubscribe = onValue(chatMessagesRef, (snapshot) => {
 			const messagesData = snapshot.val();
 			if (!messagesData) return;
 
@@ -132,9 +133,11 @@ const ChatPanel = ({ chat, onBack, className }) => {
 			Promise.all(updatePromises).catch(error => {
 				console.error("Error marking messages as read:", error);
 			});
-		}, { onlyOnce: true }); // Only run once when chat is opened
+		}); // Remove the { onlyOnce: true } option
 
+		return () => unsubscribe();
 	}, [chat?.chatId]);
+
 	useEffect(() => {
 		if (!chat?.chatId) return;
 

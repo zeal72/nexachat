@@ -107,6 +107,12 @@ const MessagePanel = ({ onChatSelect }) => {
 			<div className="flex-1 space-y-4 mb-12">
 				{users
 					.filter(user => user.name?.toLowerCase().includes(search.toLowerCase()))
+					// Sort users with unread messages to the top
+					.sort((a, b) => {
+						const unreadA = unreadCounts[a.uid] || 0;
+						const unreadB = unreadCounts[b.uid] || 0;
+						return unreadB - unreadA;
+					})
 					.map((user) => (
 						<div
 							key={user.id}
@@ -120,7 +126,7 @@ const MessagePanel = ({ onChatSelect }) => {
 									className="w-10 h-10 rounded-full object-cover border border-gray-700/30"
 								/>
 								{unreadCounts[user.uid] > 0 && (
-									<div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+									<div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center z-10">
 										{unreadCounts[user.uid] > 9 ? '9+' : unreadCounts[user.uid]}
 									</div>
 								)}
