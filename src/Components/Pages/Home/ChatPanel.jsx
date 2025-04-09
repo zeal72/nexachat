@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { PaperAirplaneIcon, FaceSmileIcon, CheckIcon, UserIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { motion } from "framer-motion";
 import EmojiPicker from "emoji-picker-react";
-import { ref, push, onValue } from "firebase/database";
+import { ref, push, onValue, update } from "firebase/database";
 import { auth, database } from "../../../../firebaseConfig";
 import { useChatStore } from "../../../store/chatstore";
 import { debounce } from 'lodash';
@@ -20,6 +20,35 @@ const ChatPanel = ({ chat, onBack, className }) => {
 	const addMessage = useChatStore((state) => state.addMessage);
 	const emojiPickerRef = useRef(null);
 	const emojiButtonRef = useRef(null);
+
+	const generateWebSocketURL = (chatId) => `ws://localhost:8080/${chatId}`;
+
+
+	// Custom Message Status Component
+	const MessageStatus = ({ status, readBy = [] }) => {
+		// Determine if the message has been read by all participants except sender
+		const isRead = status === "read" ||
+			(readBy.length > 1 && chat?.members?.every(memberId =>
+				memberId === auth.currentUser?.uid || readBy.includes(memberId)
+			));
+
+		// Style for checkmarks - blue if read, gray if not
+		const checkColor = isRead ? "text-blue-500" : "text-gray-400";
+
+		// For single check (sent/delivered)
+		if (status === "sent") {
+			return (
+				<div className="flex -space-x-1">
+					<CheckIcon className="w-3.5 h-3.5 text-gray-400" />
+				</div>
+			);
+		} return (
+			<div className="flex -space-x-1">
+				<CheckIcon className={`w-3.5 h-3.5 ${checkColor}`} />
+				<CheckIcon className={`w-3.5 h-3.5 ${checkColor}`} />
+			</div>
+		);
+	};
 
 	useEffect(() => {
 		const handleClickOutside = (event) => {
@@ -60,6 +89,52 @@ const ChatPanel = ({ chat, onBack, className }) => {
 		return () => ws.close();
 	}, [chat?.chatId]);
 
+	//  to mark messages as read
+	useEffect(() => {
+		if (!chat?.chatId || !auth.currentUser?.uid) return;
+
+		// Get reference to all messages in this chat
+		const chatMessagesRef = ref(database, `chats/${chat.chatId}/messages`);
+
+		// Update read status for all messages not sent by current user
+		onValue(chatMessagesRef, (snapshot) => {
+			const messagesData = snapshot.val();
+			if (!messagesData) return;
+
+			const currentUserId = auth.currentUser.uid;
+			const updatePromises = [];
+
+			// Go through each message and mark as read if from the other person
+			Object.keys(messagesData).forEach(messageId => {
+				const message = messagesData[messageId];
+
+				// Only update messages from other users that haven't been read by current user
+				if (message.senderId !== currentUserId &&
+					message.status !== "read" &&
+					(!message.readBy || !message.readBy.includes(currentUserId))) {
+
+					// Create a new readBy array or update existing one
+					const readBy = message.readBy ? [...message.readBy] : [];
+					if (!readBy.includes(currentUserId)) {
+						readBy.push(currentUserId);
+					}
+
+					// Update the message in Firebase
+					const messageRef = ref(database, `chats/${chat.chatId}/messages/${messageId}`);
+					updatePromises.push(update(messageRef, {
+						status: "read",
+						readBy: readBy
+					}));
+				}
+			});
+
+			// Execute all updates
+			Promise.all(updatePromises).catch(error => {
+				console.error("Error marking messages as read:", error);
+			});
+		}, { onlyOnce: true }); // Only run once when chat is opened
+
+	}, [chat?.chatId]);
 	useEffect(() => {
 		if (!chat?.chatId) return;
 
@@ -78,6 +153,8 @@ const ChatPanel = ({ chat, onBack, className }) => {
 		return () => unsubscribe();
 	}, [chat?.chatId]);
 
+	// Update in ChatPanel.jsx in the sendMessage function
+
 	const sendMessage = async () => {
 		if (!chat?.chatId || !newMessage.trim()) return;
 
@@ -88,6 +165,7 @@ const ChatPanel = ({ chat, onBack, className }) => {
 			timestamp: Date.now(),
 			chatId: chat.chatId,
 			status: "sent",
+			readBy: [auth.currentUser?.uid], // Sender has automatically read their own message
 		};
 
 		setMessages((prev) => [...prev, messageData]);
@@ -162,31 +240,36 @@ const ChatPanel = ({ chat, onBack, className }) => {
 								}`}
 						>
 							<p>{msg.text}</p>
-							<div className="flex items-center justify-end mt-1 space-x-1">
-								<span className="text-xs text-gray-300">
-									{new Date(msg.timestamp).toLocaleTimeString()}
-								</span>
-								{msg.status === "sent" && <CheckIcon className="w-4 h-4 text-gray-400" />}
-								{msg.status === "delivered" && (
-									<>
-										<CheckIcon className="w-4 h-4 text-gray-400" />
-										<CheckIcon className="w-4 h-4 text-gray-400" />
-									</>
-								)}
-								{msg.status === "read" && (
-									<>
-										<CheckIcon className="w-4 h-4 text-blue-400" />
-										<CheckIcon className="w-4 h-4 text-blue-400" />
-									</>
-								)}
-							</div>
+							{msg.senderId === auth.currentUser?.uid && (
+								<div className="flex items-center justify-end mt-1 space-x-2">
+									<span className="text-xs text-gray-300">
+										{new Date(msg.timestamp).toLocaleTimeString([], {
+											hour: '2-digit',
+											minute: '2-digit'
+										})}
+									</span>
+									<MessageStatus status={msg.status} readBy={msg.readBy} />
+								</div>
+							)}
+							{/* For messages from others, just show the time */}
+							{msg.senderId !== auth.currentUser?.uid && (
+								<div className="flex items-center justify-end mt-1">
+									<span className="text-xs text-gray-300">
+										{new Date(msg.timestamp).toLocaleTimeString([], {
+											hour: '2-digit',
+											minute: '2-digit'
+										})}
+									</span>
+								</div>
+							)}
 						</div>
 					</motion.div>
-				))}
+				))
+				}
 
 
 				<div ref={messagesEndRef} />
-			</div>...{/* Input Area */}
+			</div >...{/* Input Area */}
 			{/* Input Area */}
 			<div className="pt-3 border-t border-gray-700 flex items-center bg-primary/20 backdrop-blur-md space-x-3 relative">
 				{/* Emoji Button */}
@@ -232,7 +315,7 @@ const ChatPanel = ({ chat, onBack, className }) => {
 				</button>
 			</div>
 
-		</motion.div>
+		</motion.div >
 
 	);
 };
