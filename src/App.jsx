@@ -32,7 +32,7 @@ const App = () => {
 
   return (
     <Router>
-      <ToastContainer />
+      <ToastContainer autoClose={1700} />
       <Toaster />
 
       <Routes>

@@ -77,7 +77,7 @@ const SignIn = () => {
 			localStorage.setItem("userName", userData?.name || "");
 
 			toast.success("Logged in successfully!");
-			setTimeout(() => navigate("/Home"), 500);
+			setTimeout(() => navigate("/Home"), 1800);
 		} catch (error) {
 			handleAuthError(error);
 		} finally {
