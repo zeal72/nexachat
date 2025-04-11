@@ -103,26 +103,62 @@ const ChatPanel = ({ chat, onBack, className }) => {
 	const cancelReply = () => setReplyingTo(null);
 	const cancelEdit = () => setEditingMessage(null);
 
-	const handleDeleteMessage = (message) => {
+
+	const handleDeleteMessage = async (message) => {
+		if (!chat?.chatId) return;
+
 		try {
-			if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
-				console.error('WebSocket not connected');
-				return;
+			// Send delete via WebSocket for real-time updates
+			if (webSocket?.readyState === WebSocket.OPEN) {
+				webSocket.send(JSON.stringify({
+					type: 'message_deleted',
+					messageId: message.id,
+					chatId: chat.chatId
+				}));
 			}
-			webSocket.send(JSON.stringify({
-				type: 'delete_message',
-				messageId: message.id,
-				chatId: chat.chatId
-			}));
+
+			// Find the Firebase key for this message to update in database
+			const chatMessagesRef = ref(database, `chats/${chat.chatId}/messages`);
+			const snapshot = await get(chatMessagesRef);
+			const messagesData = snapshot.val();
+
+			// Find the Firebase key by matching the message id
+			let firebaseKey = null;
+			if (messagesData) {
+				for (const key in messagesData) {
+					if (messagesData[key].id === message.id) {
+						firebaseKey = key;
+						break;
+					}
+				}
+			}
+
+			if (firebaseKey) {
+				// Option 1: Soft Delete - Mark as deleted but keep in database
+				const messageRef = ref(database, `chats/${chat.chatId}/messages/${firebaseKey}`);
+				await update(messageRef, {
+					deleted: true,
+					deletedAt: serverTimestamp()
+				});
+
+				// Update local state to reflect changes
+				setMessages(prev => prev.map(msg =>
+					msg.id === message.id
+						? { ...msg, deleted: true }
+						: msg
+				));
+
+				// Option 2: Hard Delete - Uncomment to completely remove the message
+				// await remove(messageRef);
+				// setMessages(prev => prev.filter(msg => msg.id !== message.id));
+			} else {
+				console.error("Could not find Firebase key for message");
+			}
 		} catch (error) {
-			console.error('Error sending delete message:', error);
+			console.error("Message deletion failed:", error);
 		}
 	};
 
-	const handleStartEdit = (message) => {
-		setReplyingTo(null);
-		setEditingMessage(message);
-	};
 
 	const handleEditMessage = async (editedMessage) => {
 		if (!chat?.chatId || !editedMessage.text.trim() || !editedMessage) return;
