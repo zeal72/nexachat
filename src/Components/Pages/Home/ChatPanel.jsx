@@ -1,19 +1,19 @@
-// File: ChatPanel.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { XMarkIcon, UserIcon } from "@heroicons/react/24/outline";
 import { motion } from "framer-motion";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, get, update, serverTimestamp } from "firebase/database";
 import { auth, database } from "../../../../firebaseConfig";
 import { useChatStore } from "../../../store/chatstore";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import ReplyPreview from "./ReplyPreview";
-import markMessagesAsRead from "./utils/markMessagesAsRead"; // ✅ Move this to the top
-import { generateWebSocketURL } from "././utils/websocket";
+import markMessagesAsRead from "./utils/markMessagesAsRead";
+import { generateWebSocketURL } from "./utils/websocket";
 
 const ChatPanel = ({ chat, onBack, className }) => {
 	const [messages, setMessages] = useState([]);
 	const [replyingTo, setReplyingTo] = useState(null);
+	const [editingMessage, setEditingMessage] = useState(null);
 	const [webSocket, setWebSocket] = useState(null);
 	const messagesEndRef = useRef(null);
 	const addMessage = useChatStore((state) => state.addMessage);
@@ -34,12 +34,27 @@ const ChatPanel = ({ chat, onBack, className }) => {
 			try {
 				const message = JSON.parse(event.data);
 				if (message.chatId === chat.chatId) {
-					setMessages(prev => [...prev, message]);
-					addMessage(message);
+					if (message.type === 'message_deleted') {
+						setMessages(prev => prev.map(msg =>
+							msg.id === message.messageId ? { ...msg, deleted: true } : msg
+						));
+					} else if (message.type === 'message_edited') {
+						setMessages(prev => prev.map(msg =>
+							msg.id === message.messageId ? { ...msg, text: message.newText, edited: true } : msg
+						));
+					} else {
+						setMessages(prev => [...prev, message]);
+						addMessage(message);
+					}
 				}
 			} catch (error) {
 				console.error("Message parsing error:", error);
 			}
+		};
+
+		ws.onerror = (error) => {
+			console.error("WebSocket error:", error);
+			setWebSocket(null);
 		};
 
 		ws.onclose = () => setWebSocket(null);
@@ -52,7 +67,6 @@ const ChatPanel = ({ chat, onBack, className }) => {
 		if (!chat?.chatId || !auth.currentUser?.uid) return;
 
 		const chatMessagesRef = ref(database, `chats/${chat.chatId}/messages`);
-		// import markMessagesAsRead from './utils/markMessagesAsRead';
 		const unsubscribe = onValue(chatMessagesRef, (snapshot) => {
 			const messagesData = snapshot.val();
 			if (messagesData) {
@@ -75,16 +89,92 @@ const ChatPanel = ({ chat, onBack, className }) => {
 					id: key,
 					...messagesData[key]
 				}));
-				setMessages(messagesList);
+
+				// Sort messages by timestamp
+				const sortedMessages = messagesList.sort((a, b) => a.timestamp - b.timestamp);
+				setMessages(sortedMessages);
 			}
 		});
 
 		return () => unsubscribe();
 	}, [chat?.chatId]);
 
-	// Cancel reply
-	const cancelReply = () => {
+	// Message actions
+	const cancelReply = () => setReplyingTo(null);
+	const cancelEdit = () => setEditingMessage(null);
+
+	const handleDeleteMessage = (message) => {
+		try {
+			if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+				console.error('WebSocket not connected');
+				return;
+			}
+			webSocket.send(JSON.stringify({
+				type: 'delete_message',
+				messageId: message.id,
+				chatId: chat.chatId
+			}));
+		} catch (error) {
+			console.error('Error sending delete message:', error);
+		}
+	};
+
+	const handleStartEdit = (message) => {
 		setReplyingTo(null);
+		setEditingMessage(message);
+	};
+
+	const handleEditMessage = async (editedMessage) => {
+		if (!chat?.chatId || !editedMessage.text.trim() || !editedMessage) return;
+
+		try {
+			// Send edit via WebSocket for real-time updates
+			if (webSocket?.readyState === WebSocket.OPEN) {
+				webSocket.send(JSON.stringify({
+					type: 'message_edited',
+					messageId: editedMessage.id,
+					newText: editedMessage.text,
+					chatId: chat.chatId
+				}));
+			}
+
+			// Find the Firebase key for this message to update in database
+			const chatMessagesRef = ref(database, `chats/${chat.chatId}/messages`);
+			const snapshot = await get(chatMessagesRef);
+			const messagesData = snapshot.val();
+
+			// Find the Firebase key by matching the message id
+			let firebaseKey = null;
+			if (messagesData) {
+				for (const key in messagesData) {
+					if (messagesData[key].id === editedMessage.id) {
+						firebaseKey = key;
+						break;
+					}
+				}
+			}
+
+			if (firebaseKey) {
+				// Update using the correct Firebase key
+				const messageRef = ref(database, `chats/${chat.chatId}/messages/${firebaseKey}`);
+				await update(messageRef, {
+					text: editedMessage.text,
+					edited: true,
+					updatedAt: serverTimestamp()
+				});
+
+				// Update local state to reflect changes
+				setMessages(prev => prev.map(msg =>
+					msg.id === editedMessage.id
+						? { ...msg, text: editedMessage.text, edited: true }
+						: msg
+				));
+			} else {
+				console.error("Could not find Firebase key for message");
+			}
+		} catch (error) {
+			console.error("Message editing failed:", error);
+		}
 	};
 
 	return (
@@ -103,15 +193,19 @@ const ChatPanel = ({ chat, onBack, className }) => {
 				<MessageList
 					messages={messages}
 					currentUserId={auth.currentUser?.uid}
+					chatId={chat?.chatId}
 					chatName={chat?.userName}
 					onReply={setReplyingTo}
+					onEdit={handleEditMessage}
+					onDelete={handleDeleteMessage}
+					webSocket={webSocket}
 				/>
 				<div ref={messagesEndRef} />
 			</div>
 
-			{/* Input Area with Reply Preview */}
+			{/* Input Area */}
 			<div className="pt-3 border-t border-gray-700 flex flex-col bg-primary/20 backdrop-blur-md relative">
-				{/* Reply preview */}
+				{/* Reply/Edit Preview */}
 				{replyingTo && (
 					<div className="px-3 mb-2">
 						<ReplyPreview
@@ -122,19 +216,33 @@ const ChatPanel = ({ chat, onBack, className }) => {
 					</div>
 				)}
 
-				{/* Message input controls */}
+				{editingMessage && (
+					<div className="px-3 mb-2 flex justify-between items-center bg-blue-900/20 rounded-lg">
+						<span className="text-sm text-blue-300">Editing message</span>
+						<button
+							onClick={cancelEdit}
+							className="p-1 hover:bg-blue-900/30 rounded-full"
+						>
+							<XMarkIcon className="w-4 h-4 text-blue-300" />
+						</button>
+					</div>
+				)}
+
+				{/* Message Input */}
 				<MessageInput
 					chatId={chat?.chatId}
 					replyingTo={replyingTo}
 					webSocket={webSocket}
+					editMessage={editingMessage}
 					onReplySent={cancelReply}
+					onEditComplete={cancelEdit}
 				/>
 			</div>
 		</motion.div>
 	);
 };
 
-// Chat Header Component
+// Chat Header Component remains unchanged
 const ChatHeader = ({ chat, onBack }) => (
 	<div className="flex items-center rounded-lg p-4 bg-white/10 backdrop-blur-lg border-b border-gray-700">
 		{chat?.userProfilePicture ? (

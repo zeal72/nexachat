@@ -1,11 +1,30 @@
-// File: MessageList.jsx
-import React, { useState, useRef } from "react";
-import { ArrowUturnLeftIcon } from "@heroicons/react/24/outline";
+import React, { useState, useRef, useEffect } from "react";
+import ReactDOM from 'react-dom';
+import { ArrowUturnLeftIcon, PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { motion } from "framer-motion";
 import MessageStatus from "./MessageStatus";
 import RepliedMessageContent from "./RepliedMessageContent";
 
-const MessageList = ({ messages, currentUserId, chatName, onReply }) => {
+const MessageList = ({
+	messages,
+	currentUserId,
+	chatId,
+	chatName,
+	onReply,
+	onEdit,
+	onDelete,
+	webSocket
+}) => {
+	const [contextMenu, setContextMenu] = useState({
+		visible: false,
+		x: 0,
+		y: 0,
+		message: null
+	});
+
+	const [editingMessageId, setEditingMessageId] = useState(null);
+	const [editedText, setEditedText] = useState('');
+
 	const messageRefs = useRef({});
 	const [swipeState, setSwipeState] = useState({
 		isActive: false,
@@ -14,7 +33,44 @@ const MessageList = ({ messages, currentUserId, chatName, onReply }) => {
 		msgId: null
 	});
 
-	// Touch handlers for swipe to reply (mobile)
+	// Context menu handlers
+	const handleMessageAction = (e, message) => {
+		e.preventDefault();
+		e.stopPropagation();
+
+		const isTouch = e.type === 'touchstart';
+		const posX = isTouch ? e.touches[0].clientX : e.clientX;
+		const posY = isTouch ? e.touches[0].clientY : e.clientY;
+
+		setContextMenu({
+			visible: true,
+			x: posX,
+			y: posY,
+			message
+		});
+	};
+
+	const closeContextMenu = () => {
+		setContextMenu({ visible: false, x: 0, y: 0, message: null });
+	};
+
+	useEffect(() => {
+		const handleClickOutside = (e) => {
+			if (!e.target.closest('.context-menu')) {
+				closeContextMenu();
+			}
+		};
+
+		window.addEventListener('click', handleClickOutside);
+		window.addEventListener('contextmenu', handleClickOutside);
+
+		return () => {
+			window.removeEventListener('click', handleClickOutside);
+			window.removeEventListener('contextmenu', handleClickOutside);
+		};
+	}, []);
+
+	// Swipe handlers
 	const handleTouchStart = (e, msgId) => {
 		setSwipeState({
 			isActive: true,
@@ -26,38 +82,139 @@ const MessageList = ({ messages, currentUserId, chatName, onReply }) => {
 
 	const handleTouchMove = (e) => {
 		if (!swipeState.isActive) return;
-
-		const currentX = e.touches[0].clientX;
-		const offsetX = currentX - swipeState.startX;
-
-		// Only allow right swipe (positive offset) up to 100px
-		if (offsetX > 0) {
-			setSwipeState(prev => ({
-				...prev,
-				offsetX: Math.min(offsetX, 100)
-			}));
-		}
+		const offsetX = e.touches[0].clientX - swipeState.startX;
+		setSwipeState(prev => ({ ...prev, offsetX: Math.min(offsetX, 100) }));
 	};
 
 	const handleTouchEnd = () => {
-		// If swiped more than 50px to the right, trigger reply
 		if (swipeState.offsetX > 50) {
-			const messageToReply = messages.find(msg => msg.id === swipeState.msgId);
-			if (messageToReply) {
-				onReply(messageToReply);
-			}
+			const message = messages.find(msg => msg.id === swipeState.msgId);
+			message && onReply(message);
 		}
-
-		// Reset swipe state
 		setSwipeState({ isActive: false, startX: 0, offsetX: 0, msgId: null });
+	};
+
+	// Message action handlers
+	const handleAction = (action, message) => {
+		closeContextMenu();
+		action(message);
+	};
+
+	// Long press handling for mobile
+	const [pressTimer, setPressTimer] = useState(null);
+
+	const startPress = (e, msg) => {
+		e.preventDefault();
+		const timer = setTimeout(() => {
+			handleMessageAction(e, msg);
+		}, 500);
+		setPressTimer(timer);
+	};
+
+	const cancelPress = () => {
+		if (pressTimer) {
+			clearTimeout(pressTimer);
+			setPressTimer(null);
+		}
+	};
+
+	// Edit message handlers
+	const handleEdit = (message) => {
+		setEditingMessageId(message.id);
+		setEditedText(message.text);
+	};
+
+	const handleSaveEdit = async (message) => {
+		if (!chatId || !editedText.trim()) return;
+
+		try {
+			// Send edit via WebSocket
+			if (webSocket?.readyState === WebSocket.OPEN) {
+				webSocket.send(JSON.stringify({
+					type: 'message_edited',
+					messageId: message.id,
+					newText: editedText,
+					chatId
+				}));
+			}
+
+			// Update the message in the UI via the parent component
+			onEdit({
+				...message,
+				text: editedText,
+				edited: true,
+				updatedAt: new Date().toISOString()
+			});
+
+			setEditingMessageId(null);
+		} catch (error) {
+			console.error("Message editing failed:", error);
+		}
+	};
+
+	const handleCancelEdit = () => {
+		setEditingMessageId(null);
 	};
 
 	return (
 		<>
+			{/* Context Menu Portal */}
+			{contextMenu.visible && ReactDOM.createPortal(
+				<div
+					className="context-menu fixed z-[9999] bg-gray-800 rounded-lg p-2 shadow-xl"
+					style={{
+						left: Math.min(contextMenu.x + 10, window.innerWidth - 200),
+						top: Math.min(contextMenu.y - 10, window.innerHeight - 150),
+						transform: 'none'
+					}}
+				>
+					<div className="flex flex-col space-y-2 text-white text-sm">
+						{contextMenu.message?.senderId === currentUserId && (
+							<>
+								<button
+									className="flex items-center px-4 py-2 hover:bg-gray-700 rounded"
+									onClick={(e) => {
+										e.stopPropagation();
+										handleAction(handleEdit, contextMenu.message);
+									}}
+								>
+									<PencilIcon className="w-4 h-4 mr-2" />
+									Edit
+								</button>
+								<button
+									className="flex items-center px-4 py-2 hover:bg-gray-700 rounded text-red-400"
+									onClick={(e) => {
+										e.stopPropagation();
+										handleAction(onDelete, contextMenu.message);
+									}}
+								>
+									<TrashIcon className="w-4 h-4 mr-2" />
+									Delete
+								</button>
+							</>
+						)}
+						<button
+							className="flex items-center px-4 py-2 hover:bg-gray-700 rounded"
+							onClick={(e) => {
+								e.stopPropagation();
+								handleAction(onReply, contextMenu.message);
+							}}
+						>
+							<ArrowUturnLeftIcon className="w-4 h-4 mr-2" />
+							Reply
+						</button>
+					</div>
+				</div>,
+				document.body
+			)}
+
+			{/* Messages List */}
 			{messages.map((msg) => {
 				const isSentByMe = msg.senderId === currentUserId;
+				const isDeleted = !!msg.deleted;
+				const isEdited = !!msg.edited && !isDeleted;
+				const isBeingEdited = editingMessageId === msg.id;
 
-				// Calculate transform for swipe animation
 				const messageTransform = swipeState.isActive && swipeState.msgId === msg.id
 					? `translateX(${swipeState.offsetX}px)`
 					: 'translateX(0px)';
@@ -70,7 +227,7 @@ const MessageList = ({ messages, currentUserId, chatName, onReply }) => {
 						className={`flex ${isSentByMe ? "justify-end" : "justify-start"} group`}
 						ref={el => messageRefs.current[msg.id] = el}
 					>
-						{/* Reply action indicator visible during swipe */}
+						{/* Swipe Indicator */}
 						{!isSentByMe && swipeState.msgId === msg.id && swipeState.offsetX > 20 && (
 							<div
 								className="absolute left-0 flex items-center justify-center text-highlight"
@@ -81,18 +238,34 @@ const MessageList = ({ messages, currentUserId, chatName, onReply }) => {
 							</div>
 						)}
 
+						{/* Message Bubble */}
 						<div
 							className={`p-3 max-w-xs text-sm rounded-xl shadow-md break-words whitespace-pre-wrap cursor-pointer
+                ${isDeleted ? 'opacity-50 italic' : ''} 
                 ${isSentByMe ? "bg-gray-900 text-white" : "bg-white/20 text-white"}`}
-							style={{ transform: messageTransform, transition: swipeState.isActive ? 'none' : 'transform 0.2s ease' }}
-							onClick={() => onReply(msg)}
-							onTouchStart={(e) => handleTouchStart(e, msg.id)}
-							onTouchMove={handleTouchMove}
-							onTouchEnd={handleTouchEnd}
-							onTouchCancel={handleTouchEnd}
+							style={{
+								transform: messageTransform,
+								transition: swipeState.isActive ? 'none' : 'transform 0.2s ease'
+							}}
+							onClick={() => !isDeleted && onReply(msg)}
+							onContextMenu={(e) => !isDeleted && handleMessageAction(e, msg)}
+							onTouchStart={(e) => {
+								if (!isDeleted) {
+									e.currentTarget.style.backgroundColor = isSentByMe ? '#1a1a1a' : '#ffffff15';
+									startPress(e, msg);
+									handleTouchStart(e, msg.id);
+								}
+							}}
+							onTouchEnd={(e) => {
+								e.currentTarget.style.backgroundColor = '';
+								cancelPress();
+								handleTouchEnd();
+							}}
+							onTouchCancel={cancelPress}
+							onTouchMove={!isDeleted ? handleTouchMove : undefined}
 						>
-							{/* Show reply content if this message is a reply */}
-							{msg.replyTo && (
+							{/* Reply Preview */}
+							{msg.replyTo && !isDeleted && (
 								<RepliedMessageContent
 									replyData={msg.replyTo}
 									currentUserId={currentUserId}
@@ -100,44 +273,71 @@ const MessageList = ({ messages, currentUserId, chatName, onReply }) => {
 								/>
 							)}
 
-							<p>{msg.text}</p>
+							{/* Message Content */}
+							{isDeleted ? (
+								<p className="italic">Message deleted</p>
+							) : isBeingEdited ? (
+								<>
+									<textarea
+										className="w-full p-2 bg-gray-700 text-white rounded"
+										value={editedText}
+										onChange={(e) => setEditedText(e.target.value)}
+										autoFocus
+									/>
+									<div className="flex justify-end space-x-2 mt-1">
+										<button
+											className="px-3 py-1 bg-green-500 text-white rounded"
+											onClick={() => handleSaveEdit(msg)}
+										>
+											Save
+										</button>
+										<button
+											className="px-3 py-1 bg-gray-500 text-white rounded"
+											onClick={handleCancelEdit}
+										>
+											Cancel
+										</button>
+									</div>
+								</>
+							) : (
+								<>
+									<p>{msg.text}</p>
+									{isEdited && (
+										<span className="text-xs text-gray-300 ml-2">(edited)</span>
+									)}
+								</>
+							)}
 
-							{isSentByMe && (
-								<div className="flex items-center justify-end mt-1 space-x-2">
+							{/* Message Metadata */}
+							<div className="flex items-center justify-end mt-1 space-x-2">
+								{msg.timestamp && (
 									<span className="text-xs text-gray-300">
 										{new Date(msg.timestamp).toLocaleTimeString([], {
 											hour: '2-digit',
 											minute: '2-digit'
 										})}
 									</span>
+								)}
+								{isSentByMe && !isDeleted && (
 									<MessageStatus status={msg.status} readBy={msg.readBy} />
-								</div>
-							)}
-
-							{!isSentByMe && (
-								<div className="flex items-center justify-end mt-1">
-									<span className="text-xs text-gray-300">
-										{new Date(msg.timestamp).toLocaleTimeString([], {
-											hour: '2-digit',
-											minute: '2-digit'
-										})}
-									</span>
-								</div>
-							)}
-
-							{/* Desktop reply button - visible on hover */}
-							<div className={`absolute ${isSentByMe ? "left-0 -translate-x-full" : "right-0 translate-x-full"} 
-                top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity`}>
-								<button
-									className="bg-gray-800 text-white rounded-full p-1 hover:bg-highlight transition"
-									onClick={(e) => {
-										e.stopPropagation();
-										onReply(msg);
-									}}
-								>
-									<ArrowUturnLeftIcon className="w-4 h-4" />
-								</button>
+								)}
 							</div>
+
+							{/* Desktop Reply Button */}
+							{!isDeleted && (
+								<div className={`absolute ${isSentByMe ? "left-0 -translate-x-full" : "right-0 translate-x-full"} 
+                  top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity`}>
+									<button
+										className="bg-gray-800 text-white rounded-full p-1 hover:bg-highlight transition"
+										onClick={(e) => {
+											e.stopPropagation();
+											onReply(msg);
+										}}
+									>
+										<ArrowUturnLeftIcon className="w-4 h-4" />
+									</button>
+								</div>
+							)}
 						</div>
 					</motion.div>
 				);
